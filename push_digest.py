@@ -112,10 +112,34 @@ def _build_http_session() -> requests.Session:
 
 REQUEST_SESSION = _build_http_session()
 
-WEATHER_LOCATIONS = {
-    "厦门市": (24.4798, 118.0894),
-    "南平市浦城县": (27.9150, 118.5360),
+DEFAULT_WEATHER_CITY_IDS = {
+    "厦门市": "3105",
+    "南平市浦城县": "1743",
 }
+JUHE_WEATHER_ENDPOINT = "https://apis.juhe.cn/simpleWeather/query"
+JUHE_WEATHER_HEADERS = {"Content-Type": "application/x-www-form-urlencoded"}
+
+
+def _load_weather_city_ids() -> Dict[str, str]:
+    raw = os.getenv("WEATHER_CITY_IDS")
+    if not raw:
+        return dict(DEFAULT_WEATHER_CITY_IDS)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logging.warning("WEATHER_CITY_IDS 解析失败（%s），使用默认城市。", exc)
+        return dict(DEFAULT_WEATHER_CITY_IDS)
+    if isinstance(parsed, dict):
+        result = {str(k): str(v) for k, v in parsed.items()}
+        if result:
+            return result
+        logging.warning("WEATHER_CITY_IDS 为空字典，使用默认城市。")
+        return dict(DEFAULT_WEATHER_CITY_IDS)
+    logging.warning("WEATHER_CITY_IDS 需为 JSON 对象，使用默认城市。")
+    return dict(DEFAULT_WEATHER_CITY_IDS)
+
+
+WEATHER_CITY_IDS = _load_weather_city_ids()
 
 DEFAULT_NEWS_SOURCES: List[Dict[str, str]] = [
     {
@@ -313,18 +337,28 @@ class NewsEntry:
 
 
 @dataclass
+class WeatherRealtime:
+    temperature: Optional[float]
+    humidity: Optional[str]
+    info: Optional[str]
+    wind: Optional[str]
+    power: Optional[str]
+
+
+@dataclass
 class WeatherDay:
     date: datetime
     weather: str
-    temp_min: float
-    temp_max: float
-    apparent_min: Optional[float]
-    apparent_max: Optional[float]
-    precipitation_chance: Optional[float]
-    precipitation_sum: Optional[float]
-    windspeed_max: Optional[float]
-    sunrise: Optional[datetime]
-    sunset: Optional[datetime]
+    temp_min: Optional[float]
+    temp_max: Optional[float]
+    wind: Optional[str] = None
+    original_temp_text: Optional[str] = None
+
+
+@dataclass
+class CityWeather:
+    realtime: Optional[WeatherRealtime]
+    forecast: List[WeatherDay]
 
 
 @dataclass
@@ -486,8 +520,34 @@ def call_openrouter(messages: Sequence[Dict[str, str]], temperature: float = 0.2
                 sleep(backoff)
                 continue
             resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            try:
+                data = resp.json()
+            except ValueError as exc:
+                backoff = OPENROUTER_BACKOFF_BASE * (2**attempt) + random.uniform(0, 1)
+                logging.warning("OpenRouter 返回非 JSON：%s，%.1f 秒后重试（第 %d 次）", exc, backoff, attempt + 1)
+                sleep(backoff)
+                continue
+            choices = data.get("choices") if isinstance(data, dict) else None
+            if not choices:
+                backoff = OPENROUTER_BACKOFF_BASE * (2**attempt) + random.uniform(0, 1)
+                logging.warning(
+                    "OpenRouter 响应缺少 choices：%s，%.1f 秒后重试（第 %d 次）",
+                    data.get("error") if isinstance(data, dict) else data,
+                    backoff,
+                    attempt + 1,
+                )
+                sleep(backoff)
+                continue
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            content = message.get("content") if isinstance(message, dict) else None
+            if not content:
+                backoff = OPENROUTER_BACKOFF_BASE * (2**attempt) + random.uniform(0, 1)
+                logging.warning(
+                    "OpenRouter 响应缺少 content：%s，%.1f 秒后重试（第 %d 次）", message, backoff, attempt + 1
+                )
+                sleep(backoff)
+                continue
+            return content
         except requests.RequestException as exc:  # pragma: no cover - network issues
             backoff = OPENROUTER_BACKOFF_BASE * (2**attempt) + random.uniform(0, 1)
             logging.warning("OpenRouter 调用异常：%s，%.1f 秒后重试（第 %d 次）", exc, backoff, attempt + 1)
@@ -569,101 +629,94 @@ def enrich_news(entries: Iterable[NewsEntry], topic_label: str) -> List[NewsEntr
     return enriched
 
 
-def fetch_weather() -> Dict[str, List[WeatherDay]]:
-    weather_data: Dict[str, List[WeatherDay]] = {}
-    for city, (lat, lon) in WEATHER_LOCATIONS.items():
-        params = {
-            "latitude": lat,
-            "longitude": lon,
-            "daily": ",".join(
-                [
-                    "weathercode",
-                    "temperature_2m_max",
-                    "temperature_2m_min",
-                    "apparent_temperature_max",
-                    "apparent_temperature_min",
-                    "precipitation_probability_mean",
-                    "precipitation_sum",
-                    "windspeed_10m_max",
-                    "sunrise",
-                    "sunset",
-                ]
-            ),
-            "timezone": "Asia/Shanghai",
-        }
-        try:
-            resp = REQUEST_SESSION.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=HTTP_TIMEOUT)
-            resp.raise_for_status()
-            raw = resp.json()
-        except Exception as exc:  # pragma: no cover - network issues
-            logging.warning("Failed to fetch weather for %s: %s", city, exc)
+def fetch_weather() -> Dict[str, CityWeather]:
+    api_key = os.getenv("WEATHER_API_KEY")
+    if not api_key:
+        logging.warning("WEATHER_API_KEY 未配置，跳过天气信息。")
+        return {}
+    weather_data: Dict[str, CityWeather] = {}
+    for city_name, city_id in WEATHER_CITY_IDS.items():
+        result = _request_juhe_weather(city_name, city_id, api_key)
+        if not result:
             continue
-        daily = raw.get("daily", {})
-        days: List[WeatherDay] = []
-        times = daily.get("time", [])[:3]
-        codes = daily.get("weathercode", [])
-        max_temps = daily.get("temperature_2m_max", [])
-        min_temps = daily.get("temperature_2m_min", [])
-        precip_list = daily.get("precipitation_probability_mean", [])
-        apparent_max = daily.get("apparent_temperature_max", [])
-        apparent_min = daily.get("apparent_temperature_min", [])
-        precip_sum = daily.get("precipitation_sum", [])
-        windspeed = daily.get("windspeed_10m_max", [])
-        sunrise = daily.get("sunrise", [])
-        sunset = daily.get("sunset", [])
-        for idx, date_str in enumerate(times):
-            date_obj = parse_local_iso(f"{date_str}T00:00:00") or (datetime.now(tz=TZ) + timedelta(days=idx))
-            code = int(safe_get(codes, idx, 0) or 0)
-            temp_max = float(safe_get(max_temps, idx, 0.0) or 0.0)
-            temp_min = float(safe_get(min_temps, idx, 0.0) or 0.0)
-            precip_val = safe_get(precip_list, idx)
-            precip = float(precip_val) if precip_val is not None else None
-            days.append(
-                WeatherDay(
-                    date=date_obj,
-                    weather=weather_code_to_text(code),
-                    temp_min=temp_min,
-                    temp_max=temp_max,
-                    apparent_min=_to_float(safe_get(apparent_min, idx)),
-                    apparent_max=_to_float(safe_get(apparent_max, idx)),
-                    precipitation_chance=precip,
-                    precipitation_sum=_to_float(safe_get(precip_sum, idx)),
-                    windspeed_max=_to_float(safe_get(windspeed, idx)),
-                    sunrise=parse_local_iso(safe_get(sunrise, idx)),
-                    sunset=parse_local_iso(safe_get(sunset, idx)),
-                )
-            )
-        weather_data[city] = days
+        realtime = _parse_realtime_weather(result.get("realtime"))
+        forecast_days = _parse_future_weather(result.get("future", []))
+        if not forecast_days:
+            logging.warning("%s 未返回有效的天气预报。", city_name)
+            continue
+        weather_data[city_name] = CityWeather(realtime=realtime, forecast=forecast_days[:3])
     return weather_data
 
 
-def weather_code_to_text(code: int) -> str:
-    table = {
-        0: "晴",
-        1: "以晴为主",
-        2: "多云",
-        3: "阴",
-        45: "有雾",
-        48: "雾凇",
-        51: "毛毛雨",
-        53: "小雨",
-        55: "中雨",
-        56: "冻毛毛雨",
-        57: "冻雨",
-        61: "小雨",
-        63: "中雨",
-        65: "大雨",
-        71: "小雪",
-        73: "中雪",
-        75: "大雪",
-        80: "阵雨",
-        81: "强阵雨",
-        82: "暴雨",
-        95: "雷阵雨",
-        96: "雷阵雨伴冰雹",
-        99: "强雷阵雨伴冰雹",
-    }
-    return table.get(code, f"天气代码 {code}")
+def _request_juhe_weather(city_name: str, city_id: str, api_key: str) -> Optional[Dict[str, Any]]:
+    attempts = [
+        {"city": city_id, "key": api_key},
+        {"city": city_name, "key": api_key},
+    ]
+    for params in attempts:
+        try:
+            resp = REQUEST_SESSION.get(
+                JUHE_WEATHER_ENDPOINT, params=params, headers=JUHE_WEATHER_HEADERS, timeout=HTTP_TIMEOUT
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as exc:  # pragma: no cover - network issues
+            logging.warning("调用聚合天气接口失败（%s，参数 %s）：%s", city_name, params, exc)
+            continue
+        error_code = payload.get("error_code", payload.get("errorCode"))
+        if error_code in (None, 0) or str(error_code) == "0":
+            result = payload.get("result")
+            if result:
+                return result
+        else:
+            logging.warning("聚合天气返回错误（%s）：%s", city_name, payload.get("reason"))
+    return None
+
+
+def _parse_realtime_weather(data: Optional[Dict[str, Any]]) -> Optional[WeatherRealtime]:
+    if not data:
+        return None
+    return WeatherRealtime(
+        temperature=_to_float(data.get("temperature")),
+        humidity=(data.get("humidity") or "").strip(),
+        info=trim_whitespace(data.get("info", "")),
+        wind=trim_whitespace(data.get("direct", "")),
+        power=trim_whitespace(data.get("power", "")),
+    )
+
+
+def _parse_future_weather(items: Sequence[Dict[str, Any]]) -> List[WeatherDay]:
+    days: List[WeatherDay] = []
+    for idx, item in enumerate(items):
+        date_str = item.get("date")
+        if not date_str:
+            continue
+        date_obj = parse_local_iso(f"{date_str}T00:00:00") or (datetime.now(tz=TZ) + timedelta(days=idx))
+        temp_text = trim_whitespace(item.get("temperature", ""))
+        temp_min, temp_max = _parse_temperature_range(temp_text)
+        days.append(
+            WeatherDay(
+                date=date_obj,
+                weather=trim_whitespace(item.get("weather", "")) or "未知",
+                temp_min=temp_min,
+                temp_max=temp_max,
+                wind=trim_whitespace(item.get("direct", "")),
+                original_temp_text=temp_text,
+            )
+        )
+    return days
+
+
+def _parse_temperature_range(text: str) -> Tuple[Optional[float], Optional[float]]:
+    if not text:
+        return None, None
+    numbers = re.findall(r"-?\d+(?:\.\d+)?", text)
+    if not numbers:
+        return None, None
+    if len(numbers) == 1:
+        value = float(numbers[0])
+        return value, value
+    return float(numbers[0]), float(numbers[1])
 
 
 WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -806,29 +859,32 @@ def _format_range(min_value: Optional[float], max_value: Optional[float], unit: 
     return f"{min_value:.1f}~{max_value:.1f}{unit}"
 
 
-def format_weather_section(weather: Dict[str, List[WeatherDay]]) -> str:
+def format_weather_section(weather: Dict[str, CityWeather]) -> str:
     lines = [f"## 天气预报（未来三天） | 更新时间 {datetime.now(tz=TZ).strftime('%m-%d %H:%M')}"]
     if not weather:
         lines.append("天气数据获取失败。")
         return "\n".join(lines) + "\n"
-    for city, days in weather.items():
+    for city, info in weather.items():
         lines.append(f"### {city}")
-        if not days:
+        if not info.forecast:
             lines.append("- 暂无数据")
             continue
-        for day in days:
+        if info.realtime:
+            rt = info.realtime
+            rt_temp = f"{rt.temperature:.1f}°C" if rt.temperature is not None else "未知温度"
+            humidity = f"{rt.humidity}%" if rt.humidity else "湿度未知"
+            wind = " ".join(filter(None, [rt.wind, rt.power])).strip() or "风向未知"
+            desc = rt.info or ""
+            lines.append(f"- 当前：{rt_temp} · {desc} · {humidity} · {wind}")
+        for day in info.forecast:
             date_label = f"{day.date.strftime('%m/%d')}（{weekday_cn(day.date)}）"
-            actual_range = _format_range(day.temp_min, day.temp_max)
-            apparent_range = _format_range(day.apparent_min, day.apparent_max)
-            precip_prob = f"{day.precipitation_chance:.0f}%" if day.precipitation_chance is not None else "未知"
-            precip_sum = f"{day.precipitation_sum:.1f}mm" if day.precipitation_sum is not None else "—"
-            wind = f"{day.windspeed_max:.0f} km/h" if day.windspeed_max is not None else "—"
-            sunrise = day.sunrise.strftime("%H:%M") if day.sunrise else "--:--"
-            sunset = day.sunset.strftime("%H:%M") if day.sunset else "--:--"
-            lines.append(f"- {date_label} · {day.weather}")
-            lines.append(f"  - 气温：{actual_range}（体感 {apparent_range}）")
-            lines.append(f"  - 风速：{wind} · 降水概率 {precip_prob} · 预计降水 {precip_sum}")
-            lines.append(f"  - 日出 {sunrise} / 日落 {sunset}")
+            temp_range = _format_range(day.temp_min, day.temp_max)
+            wind = day.wind or "—"
+            detail = f"{temp_range}"
+            if day.original_temp_text and temp_range == "未知":
+                detail = day.original_temp_text
+            lines.append(f"- {date_label} · {day.weather} · 温度 {detail}")
+            lines.append(f"  - 风向：{wind}")
     lines.append("")
     return "\n".join(lines)
 

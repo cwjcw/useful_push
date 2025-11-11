@@ -3,7 +3,7 @@
 每天早上 7 点，通过方糖（Server酱）分别推送多条通知，覆盖：
 
 - AI 新闻、机器人新闻、财经新闻、科技新闻（每类独立推送，自动翻译 + 摘要，保留原文链接）
-- 未来 3 天厦门市 / 南平市浦城县的天气（包含体感温度、风速、降水、日出日落等）
+- 未来 3 天（默认厦门市 / 南平市浦城县，可通过 `WEATHER_CITY_IDS` 配置）的天气（包含体感温度、风速、降水、日出日落等）
 - 服务器健康状态（CPU / 负载 / 内存 / 磁盘 / 运行时长）
 - Google Calendar 今日日程（全天 + 精确到分钟的事件）
 
@@ -24,6 +24,8 @@
      export OPENROUTER_KEY="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
      export GOOGLE_SERVICE_ACCOUNT_JSON="/absolute/path/to/service-account.json"
      export GOOGLE_CALENDAR_ID="your_calendar_id@group.calendar.google.com"
+     export WEATHER_API_KEY="聚合天气提供的apikey"
+     export WEATHER_CITY_IDS='{"厦门市": "3105", "南平市浦城县": "1743"}'
      ```
 
    - 非敏感调优项已经写入仓库根目录的 `.env`，根据需要直接编辑即可（例如 `OPENROUTER_MAX_CHARS`、`NEWS_SOURCES_FILE` 等）。
@@ -59,7 +61,7 @@
 
 ## 其它说明
 
-- 天气数据出自 [Open-Meteo](https://open-meteo.com/)，会展示实际/体感温度、风速、降水概率与总量、日出日落。
+- 天气数据改为调用[聚合数据 · 天气预报](https://www.juhe.cn/docs/api/id/73)，需要提前配置 `WEATHER_API_KEY`。城市列表默认包含厦门市（3105）和南平市浦城县（1743），也可通过设置 `WEATHER_CITY_IDS`（JSON 字典形式，如 `{"上海市":"101020100"}`）自定义多个城市。
 - 服务器健康数据由 `psutil` 生成；如需额外指标，可在 `push_digest.py` 中扩展。
 - 若未配置某项（如 Google Calendar），对应板块会提示“未配置”而不会导致脚本失败。
 - 日志使用 `logging` 模块输出到控制台，可通过 `cron` 重定向到文件便于排查。
