@@ -1,0 +1,127 @@
+[
+  {
+    "category": "ai",
+    "label": "Google News - AI 热点",
+    "url": "https://news.google.com/rss/search?q=AI+OR+%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD+when:1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+  },
+  {
+    "category": "ai",
+    "label": "ars technica | AI",
+    "url": "https://feeds.arstechnica.com/arstechnica/technology-lab"
+  },
+  {
+    "category": "ai",
+    "label": "MIT Technology Review",
+    "url": "https://www.technologyreview.com/feed/"
+  },
+  {
+    "category": "ai",
+    "label": "VentureBeat AI",
+    "url": "https://venturebeat.com/category/ai/feed/"
+  },
+  {
+    "category": "ai",
+    "label": "Google Blog - AI",
+    "url": "https://blog.google/technology/ai/rss/"
+  },
+  {
+    "category": "ai",
+    "label": "Microsoft AI Blog",
+    "url": "https://blogs.microsoft.com/ai/feed/"
+  },
+  {
+    "category": "robotics",
+    "label": "Google News - 机器人",
+    "url": "https://news.google.com/rss/search?q=%E6%9C%BA%E5%99%A8%E4%BA%BA+OR+robotics+when:1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+  },
+  {
+    "category": "robotics",
+    "label": "The Robot Report",
+    "url": "https://www.therobotreport.com/feed/"
+  },
+  {
+    "category": "robotics",
+    "label": "IEEE Spectrum",
+    "url": "https://spectrum.ieee.org/feed"
+  },
+  {
+    "category": "robotics",
+    "label": "Robotics Business Review",
+    "url": "https://www.roboticsbusinessreview.com/feed/"
+  },
+  {
+    "category": "robotics",
+    "label": "Robohub",
+    "url": "https://robohub.org/feed/"
+  },
+  {
+    "category": "robotics",
+    "label": "ScienceDaily - Robotics",
+    "url": "https://rss.sciencedaily.com/computers_math/robotics.xml"
+  },
+  {
+    "category": "finance",
+    "label": "Google News - 中国财经",
+    "url": "https://news.google.com/rss/search?q=%E4%B8%AD%E5%9B%BD+%E8%B4%A2%E7%BB%8F+when:1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+  },
+  {
+    "category": "finance",
+    "label": "MarketWatch - Top Stories",
+    "url": "https://www.marketwatch.com/rss/topstories"
+  },
+  {
+    "category": "finance",
+    "label": "BBC Business",
+    "url": "https://feeds.bbci.co.uk/news/business/rss.xml"
+  },
+  {
+    "category": "finance",
+    "label": "Financial Times - World Economy",
+    "url": "https://www.ft.com/world-economy?format=rss"
+  },
+  {
+    "category": "finance",
+    "label": "The Economist - Finance & Economics",
+    "url": "https://www.economist.com/finance-and-economics/rss.xml"
+  },
+  {
+    "category": "finance",
+    "label": "Wall Street Journal - Markets",
+    "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"
+  },
+  {
+    "category": "finance",
+    "label": "SCMP - Economy",
+    "url": "https://www.scmp.com/rss/91/feed"
+  },
+  {
+    "category": "tech",
+    "label": "Google News - 科技",
+    "url": "https://news.google.com/rss/search?q=%E7%A7%91%E6%8A%80+when:1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+  },
+  {
+    "category": "tech",
+    "label": "TechCrunch",
+    "url": "https://techcrunch.com/feed/"
+  },
+  {
+    "category": "tech",
+    "label": "The Verge",
+    "url": "https://www.theverge.com/rss/index.xml"
+  },
+  {
+    "category": "tech",
+    "label": "WIRED",
+    "url": "https://www.wired.com/feed/rss"
+  },
+  {
+    "category": "tech",
+    "label": "Engadget",
+    "url": "https://www.engadget.com/rss.xml"
+  },
+  {
+    "category": "tech",
+    "label": "CNBC Technology",
+    "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+  }
+]

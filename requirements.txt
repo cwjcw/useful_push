@@ -1,0 +1,9 @@
+feedparser==6.0.11
+beautifulsoup4==4.12.3
+google-api-python-client==2.147.0
+google-auth==2.35.0
+google-auth-httplib2==0.2.0
+psutil==5.9.8
+python-dateutil==2.9.0.post0
+requests==2.32.3
+backports.zoneinfo==0.2.1; python_version < "3.9"
